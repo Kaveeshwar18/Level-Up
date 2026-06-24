@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - levelup-network
+    restart: always
+
+  # 2. Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    environment:
+      # Connects to the 'mongodb' service on the container network
+      - MONGODB_URL=mongodb://mongodb:27017/lifetracker
+      - JWT_SECRET=production_secret_key_for_level_up_jwt_auth_keys
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    networks:
+      - levelup-network
+    restart: always
+
+  # 3. Frontend SPA (React served via Nginx proxy)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - levelup-network
+    restart: always
+
+volumes:
+  mongo_data:
+
+networks:
+  levelup-network:
+    driver: bridge
