@@ -27,6 +27,8 @@ origins = [
     "http://127.0.0.1:3000",
     "http://localhost:80",
     "http://localhost",
+    "https://level-up-blue-theta.vercel.app",
+    "https://levelup-backend-xbzp.onrender.com",
 ]
 
 app.add_middleware(
