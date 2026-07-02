@@ -8,7 +8,8 @@ import {
   Trash2,
   Calendar,
   Sparkles,
-  TrendingUp
+  TrendingUp,
+  Check
 } from 'lucide-react';
 import goalsService from '../services/goals';
 import { GlassCard } from '../components/ui/GlassCard';
@@ -47,6 +48,15 @@ export const Goals: React.FC = () => {
 
   const deleteGoalMutation = useMutation({
     mutationFn: goalsService.deleteGoal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics'] });
+    },
+  });
+
+  const logProgressMutation = useMutation({
+    mutationFn: ({ id, currentValue }: { id: string; currentValue: number }) =>
+      goalsService.updateGoal(id, { currentValue }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['goals'] });
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
@@ -107,93 +117,16 @@ export const Goals: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {goals.map((goal) => {
-            const isCompleted = goal.progressPercentage >= 100.0;
-            return (
-              <motion.div
-                layout
-                key={goal.id}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-              >
-                <GlassCard className={`relative group border ${
-                  isCompleted ? 'border-emerald-500/20 bg-emerald-950/5' : 'border-white/5'
-                }`}>
-                  {/* Actions overlay */}
-                  <div className="absolute top-4 right-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => setEditingGoal(goal)}
-                      className="p-1.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
-                      title="Edit Goal"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteGoal(goal.id)}
-                      className="p-1.5 rounded-lg bg-red-500/10 border border-transparent hover:border-red-500/25 text-red-400 hover:text-red-300 transition-all"
-                      title="Delete Goal"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-4">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 pr-16">
-                      <span className={`w-10 h-10 rounded-xl flex items-center justify-center border text-lg ${
-                        isCompleted ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400' : 'bg-primary/10 border-primary/20 text-primary-light'
-                      }`}>
-                        <Target className="w-5 h-5" />
-                      </span>
-                      <div>
-                        <h3 className="text-sm font-bold text-slate-200 line-clamp-1">{goal.title}</h3>
-                        <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-slate-500" /> Deadline: {goal.deadline}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    {goal.description ? (
-                      <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 min-h-[2.5rem]">
-                        {goal.description}
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-slate-600 italic leading-relaxed line-clamp-2 min-h-[2.5rem]">
-                        No description details.
-                      </p>
-                    )}
-
-                    {/* Progress details */}
-                    <div className="space-y-3 pt-3">
-                      <div className="flex items-center justify-between text-2xs font-semibold text-slate-400">
-                        <span className="flex items-center gap-1">
-                          <TrendingUp className="w-3.5 h-3.5 text-slate-500" /> Progress: {goal.currentValue} / {goal.targetValue}
-                        </span>
-                        <span className={`font-bold ${isCompleted ? 'text-emerald-400' : 'text-primary-light'}`}>
-                          {goal.progressPercentage}% {isCompleted ? 'Crushed! 🎉' : ''}
-                        </span>
-                      </div>
-
-                      {/* Progress bar wrapper */}
-                      <div className="w-full bg-slate-950 h-3.5 rounded-full p-[2px] overflow-hidden border border-white/5">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isCompleted
-                              ? 'bg-gradient-to-r from-emerald-600 to-teal-400'
-                              : 'bg-gradient-to-r from-primary to-accent shadow-inner'
-                          }`}
-                          style={{ width: `${goal.progressPercentage}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </GlassCard>
-              </motion.div>
-            );
-          })}
+          {goals.map((goal) => (
+            <GoalCard
+              key={goal.id}
+              goal={goal}
+              onEdit={() => setEditingGoal(goal)}
+              onDelete={() => handleDeleteGoal(goal.id)}
+              onLogProgress={(currentValue) => logProgressMutation.mutate({ id: goal.id, currentValue })}
+              isLogging={logProgressMutation.isPending && logProgressMutation.variables?.id === goal.id}
+            />
+          ))}
         </div>
       )}
 
@@ -218,6 +151,143 @@ export const Goals: React.FC = () => {
         )}
       </AnimatePresence>
     </div>
+  );
+};
+
+// Goal Card
+interface GoalCardProps {
+  goal: any;
+  onEdit: () => void;
+  onDelete: () => void;
+  onLogProgress: (currentValue: number) => void;
+  isLogging: boolean;
+}
+
+const GoalCard: React.FC<GoalCardProps> = ({ goal, onEdit, onDelete, onLogProgress, isLogging }) => {
+  const [addAmount, setAddAmount] = useState('');
+  const isCompleted = goal.progressPercentage >= 100.0;
+
+  const handleAddProgress = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(addAmount);
+    if (!addAmount || Number.isNaN(amount) || amount === 0) return;
+    onLogProgress(goal.currentValue + amount);
+    setAddAmount('');
+  };
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.3 }}
+    >
+      <GlassCard className={`relative group border ${
+        isCompleted ? 'border-emerald-500/20 bg-emerald-950/5' : 'border-white/5'
+      }`}>
+        {/* Actions overlay */}
+        <div className="absolute top-4 right-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+            title="Edit Goal"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded-lg bg-red-500/10 border border-transparent hover:border-red-500/25 text-red-400 hover:text-red-300 transition-all"
+            title="Delete Goal"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center gap-3 pr-16">
+            <span className={`w-10 h-10 rounded-xl flex items-center justify-center border text-lg ${
+              isCompleted ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400' : 'bg-primary/10 border-primary/20 text-primary-light'
+            }`}>
+              <Target className="w-5 h-5" />
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-slate-200 line-clamp-1">{goal.title}</h3>
+              <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-slate-500" /> Deadline: {goal.deadline}
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          {goal.description ? (
+            <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2 min-h-[2.5rem]">
+              {goal.description}
+            </p>
+          ) : (
+            <p className="text-[11px] text-slate-600 italic leading-relaxed line-clamp-2 min-h-[2.5rem]">
+              No description details.
+            </p>
+          )}
+
+          {/* Progress details */}
+          <div className="space-y-3 pt-3">
+            <div className="flex items-center justify-between text-2xs font-semibold text-slate-400">
+              <span className="flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5 text-slate-500" /> Progress: {goal.currentValue} / {goal.targetValue}
+              </span>
+              <span className={`font-bold ${isCompleted ? 'text-emerald-400' : 'text-primary-light'}`}>
+                {goal.progressPercentage}% {isCompleted ? 'Crushed! 🎉' : ''}
+              </span>
+            </div>
+
+            {/* Progress bar wrapper */}
+            <div className="w-full bg-slate-950 h-3.5 rounded-full p-[2px] overflow-hidden border border-white/5">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  isCompleted
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-400'
+                    : 'bg-gradient-to-r from-primary to-accent shadow-inner'
+                }`}
+                style={{ width: `${goal.progressPercentage}%` }}
+              />
+            </div>
+
+            {/* Quick log progress */}
+            {!isCompleted && (
+              <form onSubmit={handleAddProgress} className="flex items-center gap-2 pt-1">
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="Add progress amount"
+                  value={addAmount}
+                  onChange={(e) => setAddAmount(e.target.value)}
+                  className="glass-input flex-1 min-w-0 px-3 py-1.5 rounded-lg text-slate-100 placeholder-slate-500 text-xs focus:ring-2 focus:ring-primary/25"
+                />
+                <button
+                  type="submit"
+                  disabled={!addAmount || isLogging}
+                  className="p-1.5 rounded-lg bg-primary/15 border border-primary/20 text-primary-light hover:bg-primary/25 transition-all disabled:opacity-40 shrink-0"
+                  title="Add to progress"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onLogProgress(goal.targetValue)}
+                  disabled={isLogging}
+                  className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-all disabled:opacity-40 shrink-0"
+                  title="Mark as complete"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      </GlassCard>
+    </motion.div>
   );
 };
 
